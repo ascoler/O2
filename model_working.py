@@ -121,7 +121,7 @@ def interactive_recommendations(model, df):
             
             print(f"Время обработки: {end_time - start_time:.2f} секунд")
             
-            # Предложение открыть трек в сервисе
+            
             if len(top_indices) > 0:
                 open_service = input("\nХотите открыть какой-либо трек в музыкальном сервисе? (y/n): ")
                 if open_service.lower() == 'y':
