@@ -14,6 +14,10 @@ import (
     "crypto/x509"
     "encoding/pem"
 	"time"
+	"net/http"
+	"bytes"
+	"encoding/json"
+	
 )
 
 type RegisterStruct struct {
@@ -32,6 +36,10 @@ type CustomClaims struct {
     UserID   int    `json:"user_id"`
     Username string `json:"username"`
     jwt.RegisteredClaims 
+}
+type TypeOfPlaylist struct {
+	TypeOfMusic string `json:"request" binding:"required"`
+	CountOfSongs *int    `json:"count" binding:"required"`
 }
 func loadPrivateKey(filePath string) (*rsa.PrivateKey, error) {
     
@@ -189,6 +197,30 @@ func Login(c *gin.Context){
 	}
 	c.JSON(200, gin.H{"message": "Login successful"})
 
+
+}
+
+func Work_With_Model(c *gin.Context) {
+    var data TypeOfPlaylist
+    if err := c.BindJSON(&data); err != nil {
+        c.JSON(400, gin.H{"error": "Invalid input"})
+        return
+    }
+
+    jsonData, err := json.Marshal(data)
+    if err != nil {
+        c.JSON(500, gin.H{"error": "Failed to serialize data"})
+        return
+    }
+
+    resp, err := http.Post("http://127.0.0.1:3000/recommend", "application/json", bytes.NewBuffer(jsonData))
+    if err != nil {
+        c.JSON(500, gin.H{"error": "Failed to send request"})
+        return
+    }
+    defer resp.Body.Close()
+
+    c.JSON(200, gin.H{"message": "Request successful"})
 }
 
 
@@ -196,7 +228,8 @@ func Login(c *gin.Context){
 func main() {
 	r := gin.Default()
 	connectToDatabase()
-	r.POST("/register", Register)
+	r.POST("/Register", Register)
 	r.POST("/Login",Login)
+	r.GET("/Work_with_Model",Work_With_Model)
 	r.Run(":8080")
 }
