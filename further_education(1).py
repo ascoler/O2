@@ -116,8 +116,8 @@ def build_model(input_dim=768, output_dim=768):
     return Model(inputs, outputs)
 
 def main_retrain():
-    filepath = "test.csv"
-    model_path = "spotify_music_query_model.h5"
+    filepath = "Most_Streamed_Spotify_Songs 2024.csv"
+    model_path = "o2_model_v1_2.h5"
 
     X_new, y_new, df_new = load_data(filepath)
     X_train_new, X_val_new, y_train_new, y_val_new = train_test_split(
@@ -151,7 +151,7 @@ def main_retrain():
     history = model.fit(
         X_train_new, y_train_new,
         validation_data=(X_val_new, y_val_new),
-        epochs=10,
+        epochs=15,
         batch_size=128,
         callbacks=[early_stop],
         verbose=1
@@ -168,7 +168,7 @@ def main_retrain():
     history = model.fit(
         X_train_new, y_train_new,
         validation_data=(X_val_new, y_val_new),
-        epochs=5,
+        epochs=10,
         batch_size=128,
         callbacks=[early_stop],
         verbose=1
