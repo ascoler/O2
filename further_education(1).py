@@ -61,18 +61,18 @@ def load_data(filepath):
         df = pd.read_csv(filepath, encoding=encoding)
     except UnicodeDecodeError:
         df = pd.read_csv(filepath, encoding='latin1', on_bad_lines='skip')
-    
+
     text_columns = ['Track', 'Album Name', 'Artist', 'ISRC']
     for col in text_columns:
         if col in df.columns:
             df[col] = df[col].apply(clean_text)
-    
+
     if 'Release Date' in df.columns:
         df['Release Year'] = pd.to_datetime(df['Release Date'], errors='coerce').dt.year.fillna(0)
-    
+
     if 'Explicit Track' in df.columns:
         df['Explicit'] = df['Explicit Track'].apply(lambda x: "Explicit" if x == 1 else "Clean")
-    
+
     df['track_description'] = df.apply(lambda row: (
         f"{row.get('Track', 'Unknown')} by {row.get('Artist', 'Unknown')} | "
         f"Album: {row.get('Album Name', 'Unknown')} | "
@@ -80,24 +80,24 @@ def load_data(filepath):
         f"ISRC: {row.get('ISRC', 'N/A')} | "
         f"{row.get('Explicit', '')}"
     ), axis=1)
-    
+
     track_embeddings = get_embeddings(df['track_description'].tolist())
-    
+
     queries = []
     targets = []
-    
+
     for idx, row in df.iterrows():
         queries.append(f"песня {row.get('Track', '')} {row.get('Artist', '')}")
         queries.append(f"альбом {row.get('Album Name', '')} {row.get('Artist', '')}")
-        
+
         if 'Release Year' in df.columns and row.get('Release Year', 0) > 0:
             queries.append(f"музыка {int(row.get('Release Year'))} года")
-        
+
         if 'Explicit' in df.columns:
             queries.append(f"{row.get('Explicit')} трек {row.get('Artist', '')}")
-        
+
         targets.extend([track_embeddings[idx]] * (len(queries) - len(targets)//(idx+1)))
-    
+
     query_embeddings = get_embeddings(queries)
     return query_embeddings, np.array(targets), df
 
@@ -115,68 +115,55 @@ def build_model(input_dim=768, output_dim=768):
     outputs = Dense(output_dim, activation='linear')(x)
     return Model(inputs, outputs)
 
-def main_retrain():
-    filepath = "Most_Streamed_Spotify_Songs 2024.csv"
-    model_path = "o2_model_v1_2.h5"
-
-    X_new, y_new, df_new = load_data(filepath)
-    X_train_new, X_val_new, y_train_new, y_val_new = train_test_split(
-        X_new, y_new, test_size=0.2, random_state=42
+def main_train():
+    filepath = "Most Streamed Spotify Songs 2024.csv"
+    
+    X, y, df = load_data(filepath)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42
     )
 
-    base_model = tf.keras.models.load_model(
-        model_path,
-        custom_objects={'cosine_loss': cosine_loss}
-    )
-    
-    for layer in base_model.layers:
-        layer.trainable = False
+  
+    model = build_model()
 
-    x = base_model.output
-    x = Dense(512, activation='gelu')(x)
-    x = LayerNormalization()(x)
-    x = Dropout(0.2)(x)
-    x = Dense(384, activation='gelu')(x)
-    x = LayerNormalization()(x)
-    outputs = Dense(768, activation='linear')(x)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(1e-4),
+        loss=cosine_loss
+    )
+
+    early_stop = EarlyStopping(
+        monitor='val_loss',
+        patience=5,
+        restore_best_weights=True
+    )
+
     
-    model = Model(inputs=base_model.input, outputs=outputs)
+    history = model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=30,
+        batch_size=128,
+        callbacks=[early_stop],
+        verbose=1
+    )
+
     
     model.compile(
         optimizer=tf.keras.optimizers.Adam(1e-5),
         loss=cosine_loss
     )
 
-    early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
     history = model.fit(
-        X_train_new, y_train_new,
-        validation_data=(X_val_new, y_val_new),
+        X_train, y_train,
+        validation_data=(X_val, y_val),
         epochs=15,
         batch_size=128,
         callbacks=[early_stop],
         verbose=1
     )
 
-    for layer in model.layers:
-        layer.trainable = True
-
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-6),
-        loss=cosine_loss
-    )
-
-    history = model.fit(
-        X_train_new, y_train_new,
-        validation_data=(X_val_new, y_val_new),
-        epochs=10,
-        batch_size=128,
-        callbacks=[early_stop],
-        verbose=1
-    )
-
-    model.save("o2_model_v1_2.h5")
-
-   
+    model.save("spotify_music_query_model2024.h5")
+    print("model saved!")
 
 if __name__ == "__main__":
-    main_retrain()
+    main_train()
