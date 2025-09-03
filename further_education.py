@@ -1,4 +1,3 @@
-#бля ну я накатал функцию но мне чёт лень дописать до полного кода а ещё мне лень делать это одним файлом так что будет 3 ))))
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense, Dropout, LayerNormalization
@@ -6,6 +5,7 @@ from transformers import AutoTokenizer, AutoModel
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 import torch
 import chardet
 import re
@@ -55,6 +55,14 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def clean_numeric_value(value):
+    if isinstance(value, str):
+        value = re.sub(r'[^\d.-]', '', value)
+    try:
+        return float(value) if value else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
 def load_data(filepath):
     encoding = detect_encoding(filepath)
     try:
@@ -62,17 +70,32 @@ def load_data(filepath):
     except UnicodeDecodeError:
         df = pd.read_csv(filepath, encoding='latin1', on_bad_lines='skip')
     
-    df['song'] = df['song'].apply(clean_text)
-    df['artist'] = df['artist'].apply(clean_text)
+    df['Track'] = df['Track'].apply(clean_text)
+    df['Artist'] = df['Artist'].apply(clean_text)
     
-    for col in ['last-week', 'peak-rank', 'weeks-on-board']:
-        df[col] = df[col].fillna(0)
+    numeric_features = [
+        'Spotify Streams', 'Spotify Playlist Count', 'Spotify Playlist Reach', 'Spotify Popularity',
+        'YouTube Views', 'YouTube Likes', 'TikTok Posts', 'TikTok Likes', 'TikTok Views',
+        'Shazam Counts', 'TIDAL Popularity'
+    ]
+    
+    for feature in numeric_features:
+        if feature in df.columns:
+            df[feature] = df[feature].fillna(0).apply(clean_numeric_value)
+    
+    scaler = StandardScaler()
+    for feature in numeric_features:
+        if feature in df.columns:
+            values = df[feature].values.reshape(-1, 1)
+            df[feature] = scaler.fit_transform(values)
     
     df['track_description'] = df.apply(lambda row: (
-        f"{row['song']} by {row['artist']} | "
-        f"Current rank: {row['rank']} | Peak rank: {row['peak-rank']} | "
-        f"Weeks on board: {row['weeks-on-board']} | "
-        f"Last week: {row['last-week']}"
+        f"{row['Track']} by {row['Artist']} | "
+        f"Spotify Streams: {row.get('Spotify Streams', 0):.2f} | "
+        f"Spotify Popularity: {row.get('Spotify Popularity', 0):.2f} | "
+        f"YouTube Views: {row.get('YouTube Views', 0):.2f} | "
+        f"TikTok Posts: {row.get('TikTok Posts', 0):.2f} | "
+        f"Shazam Counts: {row.get('Shazam Counts', 0):.2f}"
     ), axis=1)
     
     track_embeddings = get_embeddings(df['track_description'].tolist())
@@ -81,17 +104,30 @@ def load_data(filepath):
     targets = []
     
     for idx, row in df.iterrows():
-        queries.append(f"песня {row['song']} {row['artist']}")
-        queries.append(f"хит который достиг {row['peak-rank']} позиции в чарте")
-        queries.append(f"трек который был в чарте {row['weeks-on-board']} недель")
-        targets.extend([track_embeddings[idx]] * 3)
+        queries.append(f"песня {row['Track']} {row['Artist']}")
+        
+        popularity_queries = []
+        if 'Spotify Streams' in df.columns and row['Spotify Streams'] > 0.5:
+            popularity_queries.append("популярный трек в Spotify")
+        if 'YouTube Views' in df.columns and row['YouTube Views'] > 0.5:
+            popularity_queries.append("популярное видео на YouTube")
+        if 'TikTok Posts' in df.columns and row['TikTok Posts'] > 0.5:
+            popularity_queries.append("вирусный трек в TikTok")
+        if 'Shazam Counts' in df.columns and row['Shazam Counts'] > 0.5:
+            popularity_queries.append("часто искаемый в Shazam трек")
+        
+        for query in popularity_queries:
+            queries.append(query)
+        
+        targets.extend([track_embeddings[idx]] * (1 + len(popularity_queries)))
     
     query_embeddings = get_embeddings(queries)
     return query_embeddings, np.array(targets), df
 
 def build_model(input_dim=768, output_dim=768):
     inputs = Input(shape=(input_dim,))
-    x = Dense(512, activation='gelu')(inputs)
+    x = inputs
+    x = Dense(512, activation='gelu')(x)
     x = LayerNormalization()(x)
     x = Dropout(0.2)(x)
     x = Dense(384, activation='gelu')(x)
@@ -103,67 +139,27 @@ def build_model(input_dim=768, output_dim=768):
     outputs = Dense(output_dim, activation='linear')(x)
     return Model(inputs, outputs)
 
-def main_retrain():
-    filepath = "/content/charts.csv"
-    model_path = "/content/spotify_music_query_model.h5"
-
-    X_new, y_new, df_new = load_data(filepath)
-    X_train_new, X_val_new, y_train_new, y_val_new = train_test_split(
-        X_new, y_new, test_size=0.2, random_state=42
-    )
-
-    base_model = tf.keras.models.load_model(
-        model_path,
-        custom_objects={'cosine_loss': cosine_loss}
-    )
+def main():
+    filepath = "Most Streamed Spotify Songs 2024.csv"
     
-    for layer in base_model.layers:
-        layer.trainable = False0,
-        
-
-    x = base_model.output
-    x = Dense(512, activation='gelu')(x)
-    x = LayerNormalization()(x)
-    x = Dropout(0.2)(x)
-    x = Dense(384, activation='gelu')(x)
-    x = LayerNormalization()(x)
-    outputs = Dense(768, activation='linear')(x)
+    X, y, df = load_data(filepath)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    model = Model(inputs=base_model.input, outputs=outputs)
+    model = build_model()
+    model.compile(optimizer=tf.keras.optimizers.Adam(1e-4), loss=cosine_loss)
     
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-5),
-        loss=cosine_loss
-    )
-
     early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+    
     history = model.fit(
-        X_train_new, y_train_new,
-        validation_data=(X_val_new, y_val_new),
-        epochs=15,
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=1,
         batch_size=128,
         callbacks=[early_stop],
         verbose=1
     )
-
-    for layer in model.layers:
-        layer.trainable = True
-
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-6),
-        loss=cosine_loss
-    )
-
-    history = model.fit(
-        X_train_new, y_train_new,
-        validation_data=(X_val_new, y_val_new),
-        epochs=15,
-        batch_size=128,
-        callbacks=[early_stop],
-        verbose=1
-    )
-
-    model.save("o2_model_v1_2.h5")
+    
+    model.save("spotify_music_query_model2024.keras")
 
 if __name__ == "__main__":
-    main_retrain()
+    main()
