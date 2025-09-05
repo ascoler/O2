@@ -1,5 +1,3 @@
-#rhx z yt ecgtk to`крч я не успел ещё прогнать обучение и чисто на старом коде накатал новых меток в теории заработает в плане запросов я могу тебе дать по каким данным из датасета ищет 
-# а ну ещё я переделал поиск под те ресурсы которые использую на фронте 
 import tensorflow as tf
 import numpy as np
 import pandas as pd
@@ -7,11 +5,11 @@ import time
 import urllib.parse
 import webbrowser
 import os
-import re
-import chardet
 from transformers import AutoTokenizer, AutoModel
 import torch
-import glob
+import chardet
+import re
+from sklearn.preprocessing import StandardScaler
 
 def cosine_loss(y_true, y_pred):
     if len(y_true.shape) != 2 or len(y_pred.shape) != 2:
@@ -33,98 +31,42 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def clean_numeric_value(value):
+    if isinstance(value, str):
+        value = re.sub(r'[^\d.-]', '', value)
+    try:
+        return float(value) if value else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
 def get_embeddings(texts, batch_size=32):
     embeddings = []
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     global text_encoder, tokenizer
+    
     if 'text_encoder' not in globals():
         model_name = "bert-base-multilingual-cased"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         text_encoder = AutoModel.from_pretrained(model_name).to(device)
         text_encoder.eval()
+    
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i+batch_size]
-        inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=64).to(device)
+        inputs = tokenizer(
+            batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=64
+        ).to(device)
+        
         with torch.no_grad():
             outputs = text_encoder(**inputs)
+        
         cls_embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()
         embeddings.append(cls_embeddings)
-    return np.concatenate(embeddings, axis=0)
-
-def format_duration(milliseconds):
-    if pd.isna(milliseconds) or milliseconds == 0:
-        return "N/A"
-    seconds = milliseconds // 1000
-    minutes = seconds // 60
-    seconds = seconds % 60
-    return f"{minutes}:{seconds:02d}"
-
-def prepare_dataset(df, dataset_type):
-    if dataset_type == "spotify":
-        df['display_track_name'] = df['track_name']
-        df['display_artist_name'] = df['artist(s)_name']
-        for col in ['key', 'mode']:
-            if col in df.columns:
-                df[col] = df[col].fillna('Unknown')
-        df = df.rename(columns={
-            'danceability_%': 'danceability',
-            'energy_%': 'energy',
-            'valence_%': 'valence',
-            'acousticness_%': 'acousticness',
-            'instrumentalness_%': 'instrumentalness',
-            'liveness_%': 'liveness',
-            'speechiness_%': 'speechiness'
-        })
-        df['track_description'] = df.apply(lambda row: (
-            f"{row['track_name']} by {row['artist(s)_name']} | "
-            f"Key: {row['key']} | Mode: {row['mode']} | "
-            f"BPM: {row['bpm']} | Dance: {row['danceability']:.1f} | "
-            f"Energy: {row['energy']:.1f} | Valence: {row['valence']:.1f}"
-        ), axis=1)
-    elif dataset_type == "billboard":
-        df['display_track_name'] = df['song']
-        df['display_artist_name'] = df['artist']
-        df['track_description'] = df.apply(lambda row: (
-            f"{row['song']} by {row['artist']} | "
-            f"Current rank: {row['rank']} | Peak rank: {row['peak-rank']} | "
-            f"Weeks on board: {row['weeks-on-board']} | "
-            f"Last week: {row['last-week']}"
-        ), axis=1)
-    elif dataset_type == "extended":
-        df['display_track_name'] = df['Track']
-        df['display_artist_name'] = df['Artist']
-        if 'Release Date' in df.columns:
-            df['Release Year'] = pd.to_datetime(df['Release Date'], errors='coerce').dt.year.fillna(0)
-        if 'Explicit Track' in df.columns:
-            df['Explicit'] = df['Explicit Track'].apply(lambda x: "Explicit" if x == 1 else "Clean")
-        df['track_description'] = df.apply(lambda row: (
-            f"{row.get('Track', 'Unknown')} by {row.get('Artist', 'Unknown')} | "
-            f"Album: {row.get('Album Name', 'Unknown')} | "
-            f"Release: {row.get('Release Year', 'N/A')} | "
-            f"ISRC: {row.get('ISRC', 'N/A')} | "
-            f"{row.get('Explicit', '')}"
-        ), axis=1)
-    elif dataset_type == "itunes":
-        df['display_track_name'] = df['trackName']
-        df['display_artist_name'] = df['artistName']
-        if 'releaseDate' in df.columns:
-            df['releaseYear'] = pd.to_datetime(df['releaseDate'], errors='coerce').dt.year.fillna(0)
-        if 'trackExplicitness' in df.columns:
-            df['explicit'] = df['trackExplicitness'].apply(lambda x: "Explicit" if 'explicit' in str(x).lower() else "Clean")
-        df['track_description'] = df.apply(lambda row: (
-            f"{row.get('trackName', 'Unknown')} by {row.get('artistName', 'Unknown')} | "
-            f"Album: {row.get('collectionName', 'Unknown')} | "
-            f"Genre: {row.get('primaryGenreName', 'Unknown')} | "
-            f"Year: {row.get('releaseYear', 'N/A')} | "
-            f"Country: {row.get('country', 'N/A')} | "
-            f"Rating: {row.get('contentAdvisoryRating', 'N/A')} | "
-            f"Duration: {format_duration(row.get('trackTimeMillis', 0))} | "
-            f"{row.get('explicit', '')}"
-        ), axis=1)
-    else:
-        raise ValueError("Неизвестный тип датасета")
     
-    return df
+    return np.concatenate(embeddings, axis=0)
 
 def search_music_service(track_name, artist_name, service="youtube"):
     query = f"{track_name} {artist_name}"
@@ -136,17 +78,53 @@ def search_music_service(track_name, artist_name, service="youtube"):
         url = f"https://open.spotify.com/search/{encoded_query}"
     elif service == "apple":
         url = f"https://music.apple.com/search?term={encoded_query}"
-    elif service == "soundcloud":
-        url = f"https://soundcloud.com/search?q={encoded_query}"
     else:
         url = f"https://www.google.com/search?q={encoded_query}+music"
     
     return url
 
-def get_recommendations(model, df, test_query):
+def prepare_spotify_2024_data(filepath):
+    encoding = detect_encoding(filepath)
+    try:
+        df = pd.read_csv(filepath, encoding=encoding)
+    except UnicodeDecodeError:
+        df = pd.read_csv(filepath, encoding='latin1', on_bad_lines='skip')
+    
+    df['Track'] = df['Track'].apply(clean_text)
+    df['Artist'] = df['Artist'].apply(clean_text)
+    
+    numeric_features = [
+        'Spotify Streams', 'Spotify Playlist Count', 'Spotify Playlist Reach', 'Spotify Popularity',
+        'YouTube Views', 'YouTube Likes', 'TikTok Posts', 'TikTok Likes', 'TikTok Views',
+        'Shazam Counts', 'TIDAL Popularity'
+    ]
+    
+    for feature in numeric_features:
+        if feature in df.columns:
+            df[feature] = df[feature].fillna(0).apply(clean_numeric_value)
+    
+    scaler = StandardScaler()
+    for feature in numeric_features:
+        if feature in df.columns:
+            values = df[feature].values.reshape(-1, 1)
+            df[feature] = scaler.fit_transform(values)
+    
+    df['track_description'] = df.apply(lambda row: (
+        f"{row['Track']} by {row['Artist']} | "
+        f"Spotify Streams: {row.get('Spotify Streams', 0):.2f} | "
+        f"Spotify Popularity: {row.get('Spotify Popularity', 0):.2f} | "
+        f"YouTube Views: {row.get('YouTube Views', 0):.2f} | "
+        f"TikTok Posts: {row.get('TikTok Posts', 0):.2f} | "
+        f"Shazam Counts: {row.get('Shazam Counts', 0):.2f}"
+    ), axis=1)
+    
+    return df
+
+def get_recommendations(model, df, test_query, dataset_type):
     print("\nОбрабатываю ваш запрос...")
     test_embedding = get_embeddings([test_query])
     refined_embedding = model.predict(test_embedding)
+    
     track_embeddings = get_embeddings(df['track_description'].tolist())
     similarities = np.dot(track_embeddings, refined_embedding.T).flatten()
     top_indices = np.argsort(similarities)[-5:][::-1]
@@ -157,83 +135,54 @@ def get_recommendations(model, df, test_query):
     for i, idx in enumerate(top_indices, 1):
         track = df.iloc[idx]
         similarity = similarities[idx]
-        print(f"{i}. {track['display_track_name']}")
-        print(f"   Артист: {track['display_artist_name']}")
         
-        if 'danceability' in df.columns:
-            print(f"   Танцевальность: {track['danceability']:.1f}%")
-        if 'energy' in df.columns:
+        if dataset_type == "spotify_2023":
+            print(f"{i}. {track['track_name']}")
+            print(f"   Артист: {track['artist(s)_name']}")
+            print(f"   Ключ: {track['key']}, Лад: {track['mode']}")
             print(f"   Энергия: {track['energy']:.1f}%")
-        if 'valence' in df.columns:
-            print(f"   Валентность: {track['valence']:.1f}%")
-        if 'rank' in df.columns:
-            print(f"   Текущая позиция: {track['rank']}")
-        if 'peak-rank' in df.columns:
-            print(f"   Пиковая позиция: {track['peak-rank']}")
-        if 'weeks-on-board' in df.columns:
-            print(f"   Недель в чарте: {track['weeks-on-board']}")
+            print(f"   Танцевальность: {track['danceability']:.1f}%")
+            print(f"   Схожесть: {similarity:.4f}")
+            
+            track_name = track['track_name']
+            artist_name = track['artist(s)_name']
+        else:
+            print(f"{i}. {track['Track']}")
+            print(f"   Артист: {track['Artist']}")
+            print(f"   Spotify Streams: {track.get('Spotify Streams', 0):.2f}")
+            print(f"   Spotify Popularity: {track.get('Spotify Popularity', 0):.2f}")
+            print(f"   YouTube Views: {track.get('YouTube Views', 0):.2f}")
+            print(f"   Схожесть: {similarity:.4f}")
+            
+            track_name = track['Track']
+            artist_name = track['Artist']
         
-        print(f"   Схожесть: {similarity:.4f}")
-        
-        youtube_url = search_music_service(track['display_track_name'], track['display_artist_name'], "youtube")
-        spotify_url = search_music_service(track['display_track_name'], track['display_artist_name'], "spotify")
-        apple_url = search_music_service(track['display_track_name'], track['display_artist_name'], "apple")
-        soundcloud_url = search_music_service(track['display_track_name'], track['display_artist_name'], "soundcloud")
+        youtube_url = search_music_service(track_name, artist_name, "youtube")
+        spotify_url = search_music_service(track_name, artist_name, "spotify")
+        apple_url = search_music_service(track_name, artist_name, "apple")
         
         print(f"   YouTube: {youtube_url}")
         print(f"   Spotify: {spotify_url}")
         print(f"   Apple Music: {apple_url}")
-        print(f"   SoundCloud: {soundcloud_url}")
         print("-" * 80)
     
-    return top_indices
+    return top_indices, df
 
-def load_all_datasets():
-    datasets = []
-    dataset_files = {
-        "spotify": "spotify-2023.csv",
-        "billboard": "billboard.csv",
-        "extended": "extended_music.csv",
-        "itunes": "itunes_music.csv"
-    }
-    
-    for dataset_type, default_filename in dataset_files.items():
-        file_path = input(f"Введите путь к файлу {dataset_type} (по умолчанию {default_filename}, Enter для пропуска): ").strip()
-        if not file_path:
-            file_path = default_filename
-        
-        if not os.path.exists(file_path):
-            print(f"Файл {file_path} не найден, пропускаем {dataset_type} датасет")
-            continue
-        
-        try:
-            encoding = detect_encoding(file_path)
-            df = pd.read_csv(file_path, encoding=encoding)
-            df = prepare_dataset(df, dataset_type)
-            df['dataset_type'] = dataset_type
-            datasets.append(df)
-            print(f"Успешно загружен {dataset_type} датасет с {len(df)} треками")
-        except Exception as e:
-            print(f"Ошибка при загрузке {dataset_type} датасета: {str(e)}")
-    
-    if not datasets:
-        print("Не удалось загрузить ни один датасет!")
-        return None
-    
-    combined_df = pd.concat(datasets, ignore_index=True)
-    print(f"Всего загружено треков: {len(combined_df)}")
-    return combined_df
-
-def interactive_recommendations(model, df):
+def interactive_recommendations(model_spotify_2023, df_spotify_2023, model_spotify_2024, df_spotify_2024):
     print("ДОБРО ПОЖАЛОВАТЬ В МУЗЫКАЛЬНУЮ РЕКОМЕНДАТЕЛЬНУЮ СИСТЕМУ!")
-    print("Система обучена на 4 различных датасетах и может работать с разными типами музыкальных данных")
-    print("Примеры запросов:")
+    print("Система использует две модели: Spotify 2023 (аудио-характеристики) и Spotify 2024 (популярность)")
+    print("\nПримеры запросов для Spotify 2023:")
     print("   - 'энергичная танцевальная музыка'")
     print("   - 'спокойная музыка в минорной тональности'")
-    print("   - 'популярный трек Taylor Swift'")
-    print("   - 'хит из чартов Billboard'")
-    print("   - 'эксплисит хип-хоп трек'")
-    print("   Для выхода введите 'exit'")
+    print("   - 'песня с высокой танцевальностью'")
+    
+    print("\nПримеры запросов для Spotify 2024:")
+    print("   - 'популярные треки в Spotify'")
+    print("   - 'вирусные треки в TikTok'")
+    print("   - 'часто искаемые в Shazam треки'")
+    print("   - 'треки с большим количеством просмотров на YouTube'")
+    
+    print("\nДля выхода введите 'exit'")
     print("=" * 80)
     
     while True:
@@ -248,29 +197,84 @@ def interactive_recommendations(model, df):
                 print("Пожалуйста, введите непустой запрос")
                 continue
             
-            start_time = time.time()
-            top_indices = get_recommendations(model, df, test_query)
-            end_time = time.time()
+            spotify_2023_keywords = ['танцевальность', 'энергия', 'лад', 'тональность', 'bpm', 'валентность', 
+                                    'акустичность', 'инструментальность', 'живость', 'речевость']
             
-            print(f"Время обработки: {end_time - start_time:.2f} секунд")
+            spotify_2024_keywords = ['популярн', 'вирусн', 'стрим', 'просмотр', 'shazam', 'tiktok', 'youtube',
+                                    'часто искаем', 'топ', 'хит']
             
-            if len(top_indices) > 0:
-                open_service = input("\nХотите открыть какой-либо трек в музыкальном сервисе? (y/n): ")
-                if open_service.lower() == 'y':
-                    track_num = input("Введите номер трека (1-5): ")
-                    try:
-                        track_idx = top_indices[int(track_num) - 1]
-                        track = df.iloc[track_idx]
-                        
-                        service = input("Выберите сервис (youtube/spotify/apple/soundcloud): ").lower()
-                        if service not in ["youtube", "spotify", "apple", "soundcloud"]:
-                            service = "youtube"
-                            
-                        url = search_music_service(track['display_track_name'], track['display_artist_name'], service)
-                        print(f"Открываю {service} для трека {track['display_track_name']}...")
-                        webbrowser.open(url)
-                    except (ValueError, IndexError):
+            use_spotify_2023 = any(keyword in test_query.lower() for keyword in spotify_2023_keywords)
+            use_spotify_2024 = any(keyword in test_query.lower() for keyword in spotify_2024_keywords)
+            
+            if (use_spotify_2023 and use_spotify_2024) or (not use_spotify_2023 and not use_spotify_2024):
+                print("\n" + "="*50)
+                print("РЕКОМЕНДАЦИИ ОТ SPOTIFY 2023 МОДЕЛИ (аудио-характеристики):")
+                print("="*50)
+                start_time = time.time()
+                top_indices_2023, _ = get_recommendations(model_spotify_2023, df_spotify_2023, test_query, "spotify_2023")
+                spotify_2023_time = time.time() - start_time
+                
+                print("\n" + "="*50)
+                print("РЕКОМЕНДАЦИИ ОТ SPOTIFY 2024 МОДЕЛИ (популярность):")
+                print("="*50)
+                start_time = time.time()
+                top_indices_2024, _ = get_recommendations(model_spotify_2024, df_spotify_2024, test_query, "spotify_2024")
+                spotify_2024_time = time.time() - start_time
+                
+                print(f"\nВремя обработки Spotify 2023: {spotify_2023_time:.2f} секунд")
+                print(f"Время обработки Spotify 2024: {spotify_2024_time:.2f} секунд")
+                
+            elif use_spotify_2023:
+                print("\n" + "="*50)
+                print("РЕКОМЕНДАЦИИ ОТ SPOTIFY 2023 МОДЕЛИ (аудио-характеристики):")
+                print("="*50)
+                start_time = time.time()
+                top_indices_2023, _ = get_recommendations(model_spotify_2023, df_spotify_2023, test_query, "spotify_2023")
+                spotify_2023_time = time.time() - start_time
+                print(f"\nВремя обработки: {spotify_2023_time:.2f} секунд")
+                
+            else:
+                print("\n" + "="*50)
+                print("РЕКОМЕНДАЦИИ ОТ SPOTIFY 2024 МОДЕЛИ (популярность):")
+                print("="*50)
+                start_time = time.time()
+                top_indices_2024, _ = get_recommendations(model_spotify_2024, df_spotify_2024, test_query, "spotify_2024")
+                spotify_2024_time = time.time() - start_time
+                print(f"\nВремя обработки: {spotify_2024_time:.2f} секунд")
+            
+            open_service = input("\nХотите открыть какой-либо трек в музыкальном сервисе? (y/n): ")
+            if open_service.lower() == 'y':
+                dataset_choice = input("Из какой модели? (2023/2024): ").lower()
+                
+                if dataset_choice not in ["2023", "2024"]:
+                    print("Неверный выбор модели")
+                    continue
+                
+                track_num = input("Введите номер трека (1-5): ")
+                try:
+                    track_idx = int(track_num) - 1
+                    if track_idx < 0 or track_idx > 4:
                         print("Неверный номер трека")
+                        continue
+                        
+                    if dataset_choice == "2023":
+                        track = df_spotify_2023.iloc[top_indices_2023[track_idx]]
+                        track_name = track['track_name']
+                        artist_name = track['artist(s)_name']
+                    else:
+                        track = df_spotify_2024.iloc[top_indices_2024[track_idx]]
+                        track_name = track['Track']
+                        artist_name = track['Artist']
+                    
+                    service = input("Выберите сервис (youtube/spotify/apple): ").lower()
+                    if service not in ["youtube", "spotify", "apple"]:
+                        service = "youtube"
+                        
+                    url = search_music_service(track_name, artist_name, service)
+                    print(f"Открываю {service} для трека {track_name}...")
+                    webbrowser.open(url)
+                except (ValueError, IndexError):
+                    print("Неверный номер трека")
             
         except KeyboardInterrupt:
             print("\nДо свидания! Возвращайтесь за новыми рекомендациями!")
@@ -279,19 +283,42 @@ def interactive_recommendations(model, df):
             print(f"Произошла ошибка: {str(e)}")
 
 if __name__ == "__main__":
-    df = load_all_datasets()
-    if df is None:
-        exit()
+    encoding = detect_encoding(r'DATA.csv')
+    df_spotify_2023 = pd.read_csv(r'DATA.csv', encoding=encoding)
     
-    model_path = "spotify_music_query_model.h5"
+    for col in ['key', 'mode']:
+        df_spotify_2023[col] = df_spotify_2023[col].fillna('Unknown')
     
-    if not os.path.exists(model_path):
-        print("Модель не найдена! Убедитесь, что файл модели существует.")
-        exit()
+    df_spotify_2023['track_name'] = df_spotify_2023['track_name'].astype(str)
+    df_spotify_2023['artist(s)_name'] = df_spotify_2023['artist(s)_name'].astype(str)
     
-    model = tf.keras.models.load_model(
-        model_path,
+    df_spotify_2023 = df_spotify_2023.rename(columns={
+        'danceability_%': 'danceability',
+        'energy_%': 'energy',
+        'valence_%': 'valence',
+        'acousticness_%': 'acousticness',
+        'instrumentalness_%': 'instrumentalness',
+        'liveness_%': 'liveness',
+        'speechiness_%': 'speechiness'
+    })
+    
+    df_spotify_2023['track_description'] = df_spotify_2023.apply(lambda row: (
+        f"{row['track_name']} by {row['artist(s)_name']} | "
+        f"Key: {row['key']} | Mode: {row['mode']} | "
+        f"BPM: {row['bpm']} | Dance: {row['danceability']:.1f} | "
+        f"Energy: {row['energy']:.1f} | Valence: {row['valence']:.1f}"
+    ), axis=1)
+    
+    df_spotify_2024 = prepare_spotify_2024_data(r"DATA2.csv")
+    
+    model_spotify_2023 = tf.keras.models.load_model(
+        r'spotify_music_query_model2023.keras',
         custom_objects={'cosine_loss': cosine_loss}
     )
     
-    interactive_recommendations(model, df)
+    model_spotify_2024 = tf.keras.models.load_model(
+        r'spotify_music_query_model2024.keras',
+        custom_objects={'cosine_loss': cosine_loss}
+    )
+    
+    interactive_recommendations(model_spotify_2023, df_spotify_2023, model_spotify_2024, df_spotify_2024)
