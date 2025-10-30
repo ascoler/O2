@@ -4,7 +4,7 @@
 
 🏗️ Архитектура
 
-    🧠 AI Модель - TensorFlow + BERT + pytorch + skit-learn для понимания запросов
+    🧠 AI Модель - TensorFlow + BERT 
 
     🌐 Бэкенд - FastAPI + Go для обработки данных
 
@@ -23,7 +23,7 @@
 
 🛠️ Технологии
 
-    Python + TensorFlow + FastAPI
+    Python + TensorFlow + FastAPI + Pytorch + Sklearn + Pandas + Numpy
 
     Go для высокопроизводительного прокси
 
