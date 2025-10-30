@@ -4,23 +4,211 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>O2 - Music Recommendation</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0f0f0f;
-            color: #e0e0e0;
-            background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
-            min-height: 100vh;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
         
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        
+        /* Header Styles */
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+        
+        .logo-icon {
+            font-size: 2.5rem;
+            color: #6366f1;
+            margin-right: 0.75rem;
+        }
+        
+        .title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            color: #9ca3af;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        
+        /* Search Section */
+        .search-section {
+            max-width: 600px;
+            margin: 0 auto 3rem;
+        }
+        
+        .search-container {
+            position: relative;
+            margin-bottom: 1rem;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            border-radius: 50px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            color: white;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+        
+        .search-input:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+        }
+        
+        .search-input::placeholder {
+            color: #6b7280;
+        }
+        
+        .search-btn {
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: linear-gradient(to right, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .search-btn:hover {
+            background: linear-gradient(to right, #5b5ee0, #7c4df0);
+        }
+        
+        .search-hint {
+            text-align: center;
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+        
+        .search-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+        
+        .count-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .count-input {
+            width: 60px;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            color: white;
+            text-align: center;
+        }
+        
+        .count-label {
+            color: #9ca3af;
+            font-size: 0.875rem;
+        }
+        
+        .api-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+        
+        .status-dot.connected {
+            background: #22c55e;
+        }
+        
+        .status-text {
+            color: #9ca3af;
+        }
+        
+        /* Results Section */
+        .results-section {
+            display: none;
+        }
+        
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .results-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #d1d5db;
+        }
+        
+        .results-count {
+            color: #9ca3af;
+        }
+        
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        /* Music Card */
         .music-card {
             background: rgba(30, 30, 30, 0.7);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.25rem;
             transition: all 0.3s ease;
         }
         
@@ -30,16 +218,145 @@
             border-color: rgba(99, 102, 241, 0.5);
         }
         
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+        
+        .card-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            background: #4c1d95;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+        
+        .card-icon i {
+            font-size: 1.5rem;
+            color: #a78bfa;
+        }
+        
+        .card-content {
+            flex: 1;
+        }
+        
+        .track-name {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 0.25rem;
+        }
+        
+        .artist-name {
+            color: #9ca3af;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.5rem;
+            border-radius: 50px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .tag i {
+            margin-right: 0.25rem;
+            font-size: 0.7rem;
+        }
+        
+        .similarity-high {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        
+        .similarity-medium {
+            background: rgba(234, 179, 8, 0.2);
+            color: #eab308;
+        }
+        
+        .similarity-low {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        
+        .tag-energy {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+        }
+        
+        .tag-dance {
+            background: rgba(168, 85, 247, 0.2);
+            color: #c4b5fd;
+        }
+        
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+        }
+        
+        .track-info {
+            color: #6b7280;
+            font-size: 0.75rem;
+        }
+        
+        .platform-links {
+            display: flex;
+            gap: 0.75rem;
+        }
+        
         .platform-btn {
+            color: #9ca3af;
+            font-size: 1.125rem;
             transition: all 0.2s ease;
+            text-decoration: none;
         }
         
         .platform-btn:hover {
             transform: scale(1.1);
         }
         
-        .search-input:focus {
-            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+        .youtube:hover { color: #ef4444; }
+        .spotify:hover { color: #22c55e; }
+        .apple:hover { color: white; }
+        .soundcloud:hover { color: #f97316; }
+        
+        /* Loading Section */
+        .loading-section {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 1rem;
+            text-align: center;
+        }
+        
+        .loading-icon {
+            font-size: 4rem;
+            color: #6366f1;
+            margin-bottom: 1rem;
+            animation: spin 2s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         
         .pulse {
@@ -47,100 +364,171 @@
         }
         
         @keyframes pulse {
-            0% {
-                opacity: 0.6;
-            }
-            50% {
-                opacity: 1;
-            }
-            100% {
-                opacity: 0.6;
-            }
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
         }
         
-        .tag {
-            display: inline-block;
-            padding: 0.25rem 0.5rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            margin-right: 0.5rem;
-            margin-bottom: 0.5rem;
+        .loading-text {
+            color: #9ca3af;
         }
         
-        .similarity-high {
-            background-color: rgba(34, 197, 94, 0.2);
-            color: #22c55e;
+        /* Error Section */
+        .error-section {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 1rem;
+            text-align: center;
         }
         
-        .similarity-medium {
-            background-color: rgba(234, 179, 8, 0.2);
-            color: #eab308;
-        }
-        
-        .similarity-low {
-            background-color: rgba(239, 68, 68, 0.2);
+        .error-icon {
+            font-size: 3rem;
             color: #ef4444;
+            margin-bottom: 1rem;
+        }
+        
+        .error-text {
+            color: #9ca3af;
+            max-width: 400px;
+            margin-bottom: 1.5rem;
+        }
+        
+        .retry-btn {
+            background: #374151;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .retry-btn:hover {
+            background: #4b5563;
+        }
+        
+        /* Utility Classes */
+        .hidden {
+            display: none !important;
+        }
+        
+        .visible {
+            display: block;
+        }
+        
+        .flex {
+            display: flex;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem 0.5rem;
+            }
+            
+            .title {
+                font-size: 2rem;
+            }
+            
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .search-controls {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .card-header {
+                flex-direction: column;
+            }
+            
+            .card-icon {
+                margin-right: 0;
+                margin-bottom: 1rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .search-btn span {
+                display: none;
+            }
+            
+            .search-btn {
+                padding: 0.75rem;
+            }
+            
+            .platform-links {
+                gap: 0.5rem;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container mx-auto px-4 py-8">
+    <div class="container">
         <!-- Header -->
-        <header class="flex flex-col items-center mb-8">
-            <div class="flex items-center mb-4">
-                <i class="fas fa-music text-4xl text-indigo-500 mr-3"></i>
-                <h1 class="text-4xl font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">O2 Music Finder</h1>
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-music logo-icon"></i>
+                <h1 class="title">O2 Music Finder</h1>
             </div>
-            <p class="text-gray-400 text-center max-w-lg">Find music similar to your taste. Search by artist, song, mood, or music characteristics.</p>
+            <p class="subtitle">Find music similar to your taste. Search by artist, song, mood, or music characteristics.</p>
         </header>
         
         <!-- Search Section -->
-        <section class="max-w-2xl mx-auto mb-8">
-            <div class="relative">
+        <section class="search-section">
+            <div class="search-container">
                 <input 
                     type="text" 
                     id="musicQueryInput" 
                     placeholder="Example: 'energetic dance music in major key' or 'Taylor Swift song with high energy'" 
-                    class="w-full px-6 py-4 rounded-full bg-gray-800 border border-gray-700 focus:border-indigo-500 focus:outline-none text-white placeholder-gray-500 transition-all duration-200 search-input"
+                    class="search-input"
                 >
-                <button 
-                    id="searchBtn"
-                    class="absolute right-2 top-1/2 transform -translate-y-1/2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-2 rounded-full hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 flex items-center"
-                >
+                <button id="searchBtn" class="search-btn">
                     <span>Find Music</span>
-                    <i class="fas fa-search ml-2"></i>
+                    <i class="fas fa-search"></i>
                 </button>
             </div>
-            <div class="mt-4 text-center text-gray-500 text-sm">
-                <p>Try searching by: artist name, song title, mood, energy level, key, or danceability</p>
+            <p class="search-hint">Try searching by: artist name, song title, mood, energy level, key, or danceability</p>
+            
+            <div class="search-controls">
+                <div class="count-control">
+                    <input type="number" id="songCount" class="count-input" min="1" max="20" value="5">
+                    <span class="count-label">Number of songs</span>
+                </div>
+                <div class="api-status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span class="status-text" id="statusText">API: Disconnected</span>
+                </div>
             </div>
         </section>
         
         <!-- Results Section -->
-        <section id="resultsSection" class="hidden">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-semibold text-gray-300">Recommended Tracks</h2>
-                <div class="text-gray-400" id="resultCount"></div>
+        <section id="resultsSection" class="results-section">
+            <div class="results-header">
+                <h2 class="results-title">Recommended Tracks</h2>
+                <div class="results-count" id="resultCount"></div>
             </div>
-            
-            <div id="resultsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div id="resultsContainer" class="results-grid">
                 <!-- Results will be inserted here by JavaScript -->
             </div>
         </section>
         
-        <!-- Loading State -->
-        <section id="loadingSection" class="hidden flex flex-col items-center justify-center py-12">
+        <!-- Loading Section -->
+        <section id="loadingSection" class="loading-section">
             <div class="pulse">
-                <i class="fas fa-compact-disc text-6xl text-indigo-500 animate-spin mb-4"></i>
+                <i class="fas fa-compact-disc loading-icon"></i>
             </div>
-            <p class="text-gray-400">Analyzing your music taste...</p>
+            <p class="loading-text">Analyzing your music taste...</p>
         </section>
         
-        <!-- Error State -->
-        <section id="errorSection" class="hidden flex flex-col items-center justify-center py-12">
-            <i class="fas fa-exclamation-triangle text-5xl text-red-500 mb-4"></i>
-            <p class="text-gray-400 text-center max-w-md" id="errorText">Error message will appear here</p>
-            <button id="tryAgainBtn" class="mt-4 px-4 py-2 bg-gray-700 rounded-md hover:bg-gray-600 transition">Try Again</button>
+        <!-- Error Section -->
+        <section id="errorSection" class="error-section">
+            <i class="fas fa-exclamation-triangle error-icon"></i>
+            <p class="error-text" id="errorText">Error message will appear here</p>
+            <button id="tryAgainBtn" class="retry-btn">Try Again</button>
         </section>
     </div>
     
@@ -148,12 +536,37 @@
         document.addEventListener('DOMContentLoaded', function() {
             const searchBtn = document.getElementById('searchBtn');
             const musicQueryInput = document.getElementById('musicQueryInput');
+            const songCountInput = document.getElementById('songCount');
             const resultsSection = document.getElementById('resultsSection');
             const loadingSection = document.getElementById('loadingSection');
             const errorSection = document.getElementById('errorSection');
             const resultsContainer = document.getElementById('resultsContainer');
             const resultCount = document.getElementById('resultCount');
             const tryAgainBtn = document.getElementById('tryAgainBtn');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const errorText = document.getElementById('errorText');
+            
+            const GO_BACKEND_URL = 'http://localhost:8080';
+            
+            // Check API health on load
+            checkApiHealth();
+            
+            async function checkApiHealth() {
+                try {
+                    const response = await fetch(`${GO_BACKEND_URL}/health`);
+                    if (response.ok) {
+                        statusDot.classList.add('connected');
+                        statusText.textContent = 'API: Connected';
+                    } else {
+                        throw new Error('API not healthy');
+                    }
+                } catch (error) {
+                    statusDot.classList.remove('connected');
+                    statusText.textContent = 'API: Disconnected';
+                    console.error('API health check failed:', error);
+                }
+            }
             
             // Function to generate music service links
             function generateMusicLinks(trackName, artistName) {
@@ -179,48 +592,48 @@
                 
                 recommendations.forEach((song, index) => {
                     const card = document.createElement('div');
-                    card.className = 'music-card rounded-xl p-5 overflow-hidden';
+                    card.className = 'music-card';
                     
-                    const links = generateMusicLinks(song.title, song.artist);
+                    const links = generateMusicLinks(song.track_name, song.artist_name);
                     const similarityClass = getSimilarityClass(song.similarity);
                     
                     card.innerHTML = `
-                        <div class="flex items-start mb-4">
-                            <div class="w-16 h-16 rounded-md mr-4 flex items-center justify-center bg-indigo-900">
-                                <i class="fas fa-music text-indigo-400"></i>
+                        <div class="card-header">
+                            <div class="card-icon">
+                                <i class="fas fa-music"></i>
                             </div>
-                            <div class="flex-1">
-                                <h3 class="font-semibold text-white text-lg mb-1">${song.title}</h3>
-                                <p class="text-gray-400 text-sm mb-2">${song.artist}</p>
-                                <div class="flex flex-wrap">
+                            <div class="card-content">
+                                <h3 class="track-name">${song.track_name}</h3>
+                                <p class="artist-name">${song.artist_name}</p>
+                                <div class="tags">
                                     <span class="tag ${similarityClass}">
-                                        <i class="fas fa-heart mr-1"></i> ${(song.similarity * 100).toFixed(1)}% match
+                                        <i class="fas fa-heart"></i> ${(song.similarity * 100).toFixed(1)}% match
                                     </span>
-                                    <span class="tag bg-indigo-900 text-indigo-300">
-                                        <i class="fas fa-bolt mr-1"></i> ${song.energy}%
+                                    <span class="tag tag-energy">
+                                        <i class="fas fa-bolt"></i> ${Math.round(song.energy)}%
                                     </span>
-                                    <span class="tag bg-purple-900 text-purple-300">
-                                        <i class="fas fa-shoe-prints mr-1"></i> ${song.danceability}%
+                                    <span class="tag tag-dance">
+                                        <i class="fas fa-shoe-prints"></i> ${Math.round(song.danceability)}%
                                     </span>
                                 </div>
                             </div>
                         </div>
-                        <div class="flex justify-between items-center mt-4">
-                            <div class="text-xs text-gray-500">
-                                Key: ${song.key} • ${song.mode}
+                        <div class="card-footer">
+                            <div class="track-info">
+                                Key: ${song.key} • ${song.mode}${song.bpm ? ` • ${Math.round(song.bpm)} BPM` : ''}
                             </div>
-                            <div class="flex space-x-3">
-                                <a href="${links.youtube}" target="_blank" class="platform-btn text-red-500 hover:text-red-400" title="Search on YouTube">
-                                    <i class="fab fa-youtube text-xl"></i>
+                            <div class="platform-links">
+                                <a href="${song.youtube_url || links.youtube}" target="_blank" class="platform-btn youtube" title="Search on YouTube">
+                                    <i class="fab fa-youtube"></i>
                                 </a>
-                                <a href="${links.spotify}" target="_blank" class="platform-btn text-green-500 hover:text-green-400" title="Search on Spotify">
-                                    <i class="fab fa-spotify text-xl"></i>
+                                <a href="${song.spotify_url || links.spotify}" target="_blank" class="platform-btn spotify" title="Search on Spotify">
+                                    <i class="fab fa-spotify"></i>
                                 </a>
-                                <a href="${links.apple}" target="_blank" class="platform-btn text-white hover:text-gray-300" title="Search on Apple Music">
-                                    <i class="fab fa-apple text-xl"></i>
+                                <a href="${links.apple}" target="_blank" class="platform-btn apple" title="Search on Apple Music">
+                                    <i class="fab fa-apple"></i>
                                 </a>
-                                <a href="${links.soundcloud}" target="_blank" class="platform-btn text-orange-500 hover:text-orange-400" title="Search on SoundCloud">
-                                    <i class="fab fa-soundcloud text-xl"></i>
+                                <a href="${links.soundcloud}" target="_blank" class="platform-btn soundcloud" title="Search on SoundCloud">
+                                    <i class="fab fa-soundcloud"></i>
                                 </a>
                             </div>
                         </div>
@@ -230,104 +643,83 @@
                 });
                 
                 resultCount.textContent = `${recommendations.length} results found`;
-                resultsSection.classList.remove('hidden');
+                resultsSection.style.display = 'block';
             }
             
             // Function to show error
             function showError(message) {
-                errorSection.classList.remove('hidden');
-                loadingSection.classList.add('hidden');
-                resultsSection.classList.add('hidden');
-                document.getElementById('errorText').textContent = message;
+                errorSection.style.display = 'flex';
+                loadingSection.style.display = 'none';
+                resultsSection.style.display = 'none';
+                errorText.textContent = message;
             }
             
-            // Function to search for music (simulated)
-            function searchMusic(query) {
-                // In a real application, this would be an API call to your backend
-                console.log(`Searching for: ${query}`);
-                
-                // Simulate API response delay
-                setTimeout(() => {
-                    // Sample response data - in a real app, this would come from your backend
-                    const mockResponse = [
-                        {
-                            title: "Blinding Lights",
-                            artist: "The Weeknd",
-                            key: "C#",
-                            mode: "Major",
-                            energy: 85,
-                            danceability: 76,
-                            similarity: 0.92
+            // Function to search for music via API
+            async function searchMusic(query, count) {
+                try {
+                    const response = await fetch(`${GO_BACKEND_URL}/recommend`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
                         },
-                        {
-                            title: "Levitating",
-                            artist: "Dua Lipa",
-                            key: "F#",
-                            mode: "Minor",
-                            energy: 82,
-                            danceability: 88,
-                            similarity: 0.87
-                        },
-                        {
-                            title: "Stay",
-                            artist: "The Kid LAROI, Justin Bieber",
-                            key: "D",
-                            mode: "Major",
-                            energy: 78,
-                            danceability: 72,
-                            similarity: 0.83
-                        },
-                        {
-                            title: "Good 4 U",
-                            artist: "Olivia Rodrigo",
-                            key: "F#",
-                            mode: "Minor",
-                            energy: 89,
-                            danceability: 81,
-                            similarity: 0.79
-                        },
-                        {
-                            title: "Save Your Tears",
-                            artist: "The Weeknd",
-                            key: "D",
-                            mode: "Major",
-                            energy: 76,
-                            danceability: 74,
-                            similarity: 0.75
-                        }
-                    ];
+                        body: JSON.stringify({
+                            request: query,
+                            count: count
+                        })
+                    });
                     
-                    loadingSection.classList.add('hidden');
-                    
-                    if (query.toLowerCase().includes('error')) {
-                        showError('Could not process your request. Please try a different query.');
-                        return;
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                     }
                     
-                    displayResults(mockResponse);
-                }, 2000);
+                    const data = await response.json();
+                    
+                    // Extract recommendations from the nested structure
+                    if (data.data && data.data.recommendations) {
+                        return data.data.recommendations;
+                    } else {
+                        throw new Error('Invalid response format from API');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error fetching recommendations:', error);
+                    throw error;
+                }
             }
             
             // Event listeners
-            searchBtn.addEventListener('click', function() {
+            searchBtn.addEventListener('click', async function() {
                 const query = musicQueryInput.value.trim();
+                const count = parseInt(songCountInput.value) || 5;
                 
                 if (query === '') {
                     showError('Please enter a music query');
                     return;
                 }
                 
-                // Show loading state
-                resultsSection.classList.add('hidden');
-                errorSection.classList.add('hidden');
-                loadingSection.classList.remove('hidden');
+                if (count < 1 || count > 20) {
+                    showError('Number of songs must be between 1 and 20');
+                    return;
+                }
                 
-                // Start search
-                searchMusic(query);
+                // Show loading state
+                resultsSection.style.display = 'none';
+                errorSection.style.display = 'none';
+                loadingSection.style.display = 'flex';
+                
+                try {
+                    // Start search via API
+                    const recommendations = await searchMusic(query, count);
+                    loadingSection.style.display = 'none';
+                    displayResults(recommendations);
+                } catch (error) {
+                    showError(`Failed to get recommendations: ${error.message}`);
+                }
             });
             
             tryAgainBtn.addEventListener('click', function() {
-                errorSection.classList.add('hidden');
+                errorSection.style.display = 'none';
                 musicQueryInput.focus();
             });
             
