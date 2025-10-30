@@ -12,8 +12,11 @@ import re
 import chardet
 from transformers import AutoTokenizer, AutoModel
 import torch
+import kagglehub
 
-# Настройка логирования
+
+path = kagglehub.dataset_download("nelgiriyewithana/top-spotify-songs-2023")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -160,8 +163,8 @@ def load_and_preprocess_data():
     
     try:
         # Загрузка данных
-        encoding = detect_encoding('spotify-2023.csv')
-        df = pd.read_csv('spotify-2023.csv', encoding=encoding)
+        encoding = detect_encoding(path)
+        df = pd.read_csv(path, encoding=encoding)
         logger.info(f"Данные загружены. Размер: {df.shape}")
         
         # Обработка данных
