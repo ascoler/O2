@@ -12,6 +12,14 @@ import re
 import chardet
 from transformers import AutoTokenizer, AutoModel
 import torch
+import os
+import keras
+import kagglehub
+path = kagglehub.dataset_download("nelgiriyewithana/top-spotify-songs-2023")
+path2 = kagglehub.dataset_download("nelgiriyewithana/most-streamed-spotify-songs-2024")
+os.environ["KERAS_BACKEND"] = "tensorflow"
+model = keras.saving.load_model("hf://rorovaaaa/02_MODEL1")
+model2 = keras.saving.load_model("hf://rorovaaaa/02_MODEL2.py")
 
 
 logging.basicConfig(level=logging.INFO)
@@ -111,7 +119,6 @@ def clean_numeric_value(value):
         return 0.0
 
 def initialize_bert_model():
-    """Инициализация BERT модели для эмбеддингов - ТОЧНО КАК В model_working.py"""
     global text_encoder, tokenizer, device
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -219,8 +226,8 @@ def load_and_preprocess_data():
     
     try:
    
-        encoding = detect_encoding('DATA.csv')
-        df_spotify_2023 = pd.read_csv('DATA.csv', encoding=encoding)
+        encoding = detect_encoding(path)
+        df_spotify_2023 = pd.read_csv(path, encoding=encoding)
         logger.info(f"Данные Spotify 2023 загружены. Размер: {df_spotify_2023.shape}")
         
         
@@ -250,7 +257,7 @@ def load_and_preprocess_data():
         ), axis=1)
         
       
-        df_spotify_2024 = prepare_spotify_2024_data("DATA2.csv")
+        df_spotify_2024 = prepare_spotify_2024_data(path2)
         logger.info(f"Данные Spotify 2024 загружены. Размер: {df_spotify_2024.shape}")
         
         logger.info("Все данные успешно обработаны")
@@ -266,14 +273,14 @@ def load_models():
     
     try:
         model_spotify_2023 = tf.keras.models.load_model(
-            'spotify_music_query_model2023.keras',
+            model,
             custom_objects={'cosine_loss': cosine_loss},
             compile=False
         )
         logger.info("Spotify 2023 модель успешно загружена")
         
         model_spotify_2024 = tf.keras.models.load_model(
-            'spotify_music_query_model2024.keras',
+            model2,
             custom_objects={'cosine_loss': cosine_loss},
             compile=False
         )
@@ -467,7 +474,6 @@ def get_mock_recommendations(request: RecommendationRequest):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Проверка состояния сервиса"""
     models_loaded = model_spotify_2023 is not None and model_spotify_2024 is not None
     data_loaded = df_spotify_2023 is not None and df_spotify_2024 is not None
     status = "healthy" if models_loaded and data_loaded else "degraded"
