@@ -12,10 +12,7 @@ import re
 import chardet
 from transformers import AutoTokenizer, AutoModel
 import torch
-import kagglehub
 
-
-path = kagglehub.dataset_download("nelgiriyewithana/top-spotify-songs-2023")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +23,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Добавляем CORS middleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
@@ -35,9 +32,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Глобальные переменные для модели и данных
-model = None
-df = None
+
+model_spotify_2023 = None
+model_spotify_2024 = None
+df_spotify_2023 = None
+df_spotify_2024 = None
 text_encoder = None
 tokenizer = None
 device = None
@@ -46,33 +45,41 @@ device = None
 class RecommendationRequest(BaseModel):
     query: str
     top_n: Optional[int] = 5
+    dataset_type: Optional[str] = "auto"  # "spotify_2023", "spotify_2024", "auto"
 
 class TrackInfo(BaseModel):
     track_name: str
     artist_name: str
     similarity: float
-    key: str
-    mode: str
-    energy: float
-    danceability: float
+    key: Optional[str] = None
+    mode: Optional[str] = None
+    energy: Optional[float] = None
+    danceability: Optional[float] = None
     valence: Optional[float] = None
     bpm: Optional[float] = None
+    spotify_streams: Optional[float] = None
+    spotify_popularity: Optional[float] = None
+    youtube_views: Optional[float] = None
+    dataset_type: str
     youtube_url: str
     spotify_url: str
+    apple_url: str
 
 class RecommendationResponse(BaseModel):
     query: str
+    dataset_type: str
     recommendations: List[TrackInfo]
 
 class HealthResponse(BaseModel):
     status: str
-    model_loaded: bool
+    models_loaded: bool
     data_loaded: bool
-    total_tracks: Optional[int] = None
+    total_tracks_2023: Optional[int] = None
+    total_tracks_2024: Optional[int] = None
 
-# Функции для работы с моделью
+
 def cosine_loss(y_true, y_pred):
-    """Функция потерь на основе косинусного сходства"""
+    
     if len(y_true.shape) != 2 or len(y_pred.shape) != 2:
         y_true = tf.reshape(y_true, [-1, 768])
         y_pred = tf.reshape(y_pred, [-1, 768])
@@ -81,21 +88,30 @@ def cosine_loss(y_true, y_pred):
     return 1 - tf.reduce_mean(tf.reduce_sum(y_true * y_pred, axis=1))
 
 def detect_encoding(file_path):
-    """Определение кодировки файла"""
+   
     with open(file_path, 'rb') as f:
         raw_data = f.read(10000)
     return chardet.detect(raw_data)['encoding']
 
 def clean_text(text):
-    """Очистка текста"""
+    
     if not isinstance(text, str):
         return ""
     text = re.sub(r'[^\w\s]', '', text)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def clean_numeric_value(value):
+  
+    if isinstance(value, str):
+        value = re.sub(r'[^\d.-]', '', value)
+    try:
+        return float(value) if value else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
 def initialize_bert_model():
-    """Инициализация BERT модели для эмбеддингов"""
+    """Инициализация BERT модели для эмбеддингов - ТОЧНО КАК В model_working.py"""
     global text_encoder, tokenizer, device
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -112,7 +128,7 @@ def initialize_bert_model():
         raise
 
 def get_embeddings(texts, batch_size=16):
-    """Получение эмбеддингов для текстов"""
+    
     global text_encoder, tokenizer
     
     if text_encoder is None or tokenizer is None:
@@ -133,18 +149,19 @@ def get_embeddings(texts, batch_size=16):
             with torch.no_grad():
                 outputs = text_encoder(**inputs)
             
+           
             cls_embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()
             embeddings.append(cls_embeddings)
         except Exception as e:
             logger.error(f"Ошибка при обработке батча: {str(e)}")
-            # Добавляем нулевые эмбеддинги для проблемных примеров
+            
             dummy_embedding = np.zeros((len(batch), 768))
             embeddings.append(dummy_embedding)
     
     return np.concatenate(embeddings, axis=0)
 
 def search_music_service(track_name, artist_name, service="youtube"):
-    """Генерация URL для поиска трека в музыкальных сервисах"""
+ 
     query = f"{track_name} {artist_name}"
     encoded_query = urllib.parse.quote_plus(query)
     
@@ -157,25 +174,64 @@ def search_music_service(track_name, artist_name, service="youtube"):
     else:
         return f"https://www.google.com/search?q={encoded_query}+music"
 
+def prepare_spotify_2024_data(filepath):
+   
+    encoding = detect_encoding(filepath)
+    try:
+        df = pd.read_csv(filepath, encoding=encoding)
+    except UnicodeDecodeError:
+        df = pd.read_csv(filepath, encoding='latin1', on_bad_lines='skip')
+    
+    df['Track'] = df['Track'].apply(clean_text)
+    df['Artist'] = df['Artist'].apply(clean_text)
+    
+    numeric_features = [
+        'Spotify Streams', 'Spotify Playlist Count', 'Spotify Playlist Reach', 'Spotify Popularity',
+        'YouTube Views', 'YouTube Likes', 'TikTok Posts', 'TikTok Likes', 'TikTok Views',
+        'Shazam Counts', 'TIDAL Popularity'
+    ]
+    
+    for feature in numeric_features:
+        if feature in df.columns:
+            df[feature] = df[feature].fillna(0).apply(clean_numeric_value)
+    
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    for feature in numeric_features:
+        if feature in df.columns:
+            values = df[feature].values.reshape(-1, 1)
+            df[feature] = scaler.fit_transform(values)
+    
+    df['track_description'] = df.apply(lambda row: (
+        f"{row['Track']} by {row['Artist']} | "
+        f"Spotify Streams: {row.get('Spotify Streams', 0):.2f} | "
+        f"Spotify Popularity: {row.get('Spotify Popularity', 0):.2f} | "
+        f"YouTube Views: {row.get('YouTube Views', 0):.2f} | "
+        f"TikTok Posts: {row.get('TikTok Posts', 0):.2f} | "
+        f"Shazam Counts: {row.get('Shazam Counts', 0):.2f}"
+    ), axis=1)
+    
+    return df
+
 def load_and_preprocess_data():
-    """Загрузка и предобработка данных"""
-    global df
+   
+    global df_spotify_2023, df_spotify_2024
     
     try:
-        # Загрузка данных
-        encoding = detect_encoding(path)
-        df = pd.read_csv(path, encoding=encoding)
-        logger.info(f"Данные загружены. Размер: {df.shape}")
+   
+        encoding = detect_encoding('DATA.csv')
+        df_spotify_2023 = pd.read_csv('DATA.csv', encoding=encoding)
+        logger.info(f"Данные Spotify 2023 загружены. Размер: {df_spotify_2023.shape}")
         
-        # Обработка данных
+        
         for col in ['key', 'mode']:
-            df[col] = df[col].fillna('Unknown')
+            df_spotify_2023[col] = df_spotify_2023[col].fillna('Unknown')
         
-        df['track_name'] = df['track_name'].astype(str).apply(clean_text)
-        df['artist(s)_name'] = df['artist(s)_name'].astype(str).apply(clean_text)
+        df_spotify_2023['track_name'] = df_spotify_2023['track_name'].astype(str)
+        df_spotify_2023['artist(s)_name'] = df_spotify_2023['artist(s)_name'].astype(str)
         
-        # Переименование колонок
-        column_mapping = {
+        
+        df_spotify_2023 = df_spotify_2023.rename(columns={
             'danceability_%': 'danceability',
             'energy_%': 'energy',
             'valence_%': 'valence',
@@ -183,59 +239,103 @@ def load_and_preprocess_data():
             'instrumentalness_%': 'instrumentalness',
             'liveness_%': 'liveness',
             'speechiness_%': 'speechiness'
-        }
+        })
         
-        df = df.rename(columns=column_mapping)
         
-        # Создание описания для треков
-        df['track_description'] = df.apply(lambda row: (
+        df_spotify_2023['track_description'] = df_spotify_2023.apply(lambda row: (
             f"{row['track_name']} by {row['artist(s)_name']} | "
             f"Key: {row['key']} | Mode: {row['mode']} | "
             f"BPM: {row['bpm']} | Dance: {row['danceability']:.1f} | "
             f"Energy: {row['energy']:.1f} | Valence: {row['valence']:.1f}"
         ), axis=1)
         
-        logger.info("Данные успешно обработаны")
+      
+        df_spotify_2024 = prepare_spotify_2024_data("DATA2.csv")
+        logger.info(f"Данные Spotify 2024 загружены. Размер: {df_spotify_2024.shape}")
+        
+        logger.info("Все данные успешно обработаны")
         return True
         
     except Exception as e:
         logger.error(f"Ошибка при загрузке данных: {str(e)}")
         return False
 
-def load_model():
-    """Загрузка Keras модели"""
-    global model
+def load_models():
+   
+    global model_spotify_2023, model_spotify_2024
     
     try:
-        model = tf.keras.models.load_model(
+        model_spotify_2023 = tf.keras.models.load_model(
+            'spotify_music_query_model2023.keras',
+            custom_objects={'cosine_loss': cosine_loss},
+            compile=False
+        )
+        logger.info("Spotify 2023 модель успешно загружена")
+        
+        model_spotify_2024 = tf.keras.models.load_model(
             'spotify_music_query_model2024.keras',
             custom_objects={'cosine_loss': cosine_loss},
             compile=False
         )
-        logger.info("Keras модель успешно загружена")
+        logger.info("Spotify 2024 модель успешно загружена")
         return True
     except Exception as e:
-        logger.error(f"Ошибка при загрузке Keras модели: {str(e)}")
+        logger.error(f"Ошибка при загрузке моделей: {str(e)}")
         return False
 
+def determine_dataset_type(query: str) -> str:
+    
+    spotify_2023_keywords = ['танцевальность', 'энергия', 'лад', 'тональность', 'bpm', 'валентность', 
+                            'акустичность', 'инструментальность', 'живость', 'речевость']
+    
+    spotify_2024_keywords = ['популярн', 'вирусн', 'стрим', 'просмотр', 'shazam', 'tiktok', 'youtube',
+                            'часто искаем', 'топ', 'хит']
+    
+    use_spotify_2023 = any(keyword in query.lower() for keyword in spotify_2023_keywords)
+    use_spotify_2024 = any(keyword in query.lower() for keyword in spotify_2024_keywords)
+    
+    if use_spotify_2023 and not use_spotify_2024:
+        return "spotify_2023"
+    elif use_spotify_2024 and not use_spotify_2023:
+        return "spotify_2024"
+    else:
+        return "both"
+
+def get_recommendations_for_dataset(model, df, test_query, dataset_type, top_n=5):
+
+    
+    test_embedding = get_embeddings([test_query])
+    
+
+    refined_embedding = model.predict(test_embedding, verbose=0)
+    
+
+    track_embeddings = get_embeddings(df['track_description'].tolist())
+    
+
+    similarities = np.dot(track_embeddings, refined_embedding.T).flatten()
+
+    top_indices = np.argsort(similarities)[-top_n:][::-1]
+    
+    return top_indices, similarities
+
 def initialize_model_and_data():
-    """Инициализация модели и данных при запуске приложения"""
-    global model, df
+
+    global model_spotify_2023, model_spotify_2024, df_spotify_2023, df_spotify_2024
     
-    # Загрузка данных
+    
     data_loaded = load_and_preprocess_data()
+
+    models_loaded = load_models()
     
-    # Загрузка модели
-    model_loaded = load_model()
-    
-    # Инициализация BERT
+
     initialize_bert_model()
     
-    return model_loaded and data_loaded
+    return models_loaded and data_loaded
 
 @app.on_event("startup")
 async def startup_event():
-    """Инициализация при запуске приложения"""
+
     logger.info("Запуск инициализации приложения...")
     try:
         success = initialize_model_and_data()
@@ -248,52 +348,88 @@ async def startup_event():
 
 @app.post("/recommend", response_model=RecommendationResponse)
 async def get_recommendations(request: RecommendationRequest):
-    """Получить музыкальные рекомендации"""
+  
     try:
-        # Валидация запроса
+       
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Запрос не может быть пустым")
         
         if request.top_n <= 0 or request.top_n > 50:
             raise HTTPException(status_code=400, detail="top_n должен быть между 1 и 50")
         
-        # Если модель не загружена, возвращаем mock данные
-        if model is None or df is None:
-            logger.warning("Модель не загружена, возвращаются mock данные")
+       
+        if model_spotify_2023 is None or df_spotify_2023 is None:
+            logger.warning("Модели не загружены, возвращаются mock данные")
             return get_mock_recommendations(request)
         
-        # Получение рекомендаций от модели
-        test_embedding = get_embeddings([request.query])
-        refined_embedding = model.predict(test_embedding, verbose=0)
-        track_embeddings = get_embeddings(df['track_description'].tolist())
+     
+        if request.dataset_type == "auto":
+            dataset_type = determine_dataset_type(request.query)
+        else:
+            dataset_type = request.dataset_type
         
-        # Вычисление сходства
-        similarities = np.dot(track_embeddings, refined_embedding.T).flatten()
-        top_indices = np.argsort(similarities)[-request.top_n:][::-1]
+        logger.info(f"Обрабатываю запрос: '{request.query}', dataset_type: {dataset_type}")
         
-        # Формирование ответа
         recommendations = []
-        for idx in top_indices:
-            track = df.iloc[idx]
-            similarity = float(similarities[idx])
+        final_dataset_type = dataset_type
+        
+        if dataset_type in ["spotify_2023", "both"]:
+       
+            top_indices, similarities = get_recommendations_for_dataset(
+                model_spotify_2023, df_spotify_2023, request.query, "spotify_2023", request.top_n
+            )
             
-            recommendations.append(TrackInfo(
-                track_name=track['track_name'],
-                artist_name=track['artist(s)_name'],
-                similarity=similarity,
-                key=str(track['key']),
-                mode=str(track['mode']),
-                energy=float(track['energy']),
-                danceability=float(track['danceability']),
-                valence=float(track.get('valence', 0)),
-                bpm=float(track.get('bpm', 0)),
-                youtube_url=search_music_service(track['track_name'], track['artist(s)_name'], "youtube"),
-                spotify_url=search_music_service(track['track_name'], track['artist(s)_name'], "spotify")
-            ))
+            for idx in top_indices:
+                track = df_spotify_2023.iloc[idx]
+                similarity = float(similarities[idx])
+                
+                recommendations.append(TrackInfo(
+                    track_name=track['track_name'],
+                    artist_name=track['artist(s)_name'],
+                    similarity=similarity,
+                    key=str(track['key']),
+                    mode=str(track['mode']),
+                    energy=float(track['energy']),
+                    danceability=float(track['danceability']),
+                    valence=float(track.get('valence', 0)),
+                    bpm=float(track.get('bpm', 0)),
+                    dataset_type="spotify_2023",
+                    youtube_url=search_music_service(track['track_name'], track['artist(s)_name'], "youtube"),
+                    spotify_url=search_music_service(track['track_name'], track['artist(s)_name'], "spotify"),
+                    apple_url=search_music_service(track['track_name'], track['artist(s)_name'], "apple")
+                ))
+        
+        if dataset_type in ["spotify_2024", "both"] and model_spotify_2024 is not None and df_spotify_2024 is not None:
+        
+            top_indices, similarities = get_recommendations_for_dataset(
+                model_spotify_2024, df_spotify_2024, request.query, "spotify_2024", request.top_n
+            )
+            
+            for idx in top_indices:
+                track = df_spotify_2024.iloc[idx]
+                similarity = float(similarities[idx])
+                
+                recommendations.append(TrackInfo(
+                    track_name=track['Track'],
+                    artist_name=track['Artist'],
+                    similarity=similarity,
+                    spotify_streams=float(track.get('Spotify Streams', 0)),
+                    spotify_popularity=float(track.get('Spotify Popularity', 0)),
+                    youtube_views=float(track.get('YouTube Views', 0)),
+                    dataset_type="spotify_2024",
+                    youtube_url=search_music_service(track['Track'], track['Artist'], "youtube"),
+                    spotify_url=search_music_service(track['Track'], track['Artist'], "spotify"),
+                    apple_url=search_music_service(track['Track'], track['Artist'], "apple")
+                ))
+        
+     
+        recommendations.sort(key=lambda x: x.similarity, reverse=True)
+        recommendations = recommendations[:request.top_n]
         
         logger.info(f"Успешно возвращено {len(recommendations)} рекомендаций для запроса: '{request.query}'")
         return RecommendationResponse(
             query=request.query,
+            dataset_type=final_dataset_type,
             recommendations=recommendations
         )
         
@@ -304,7 +440,7 @@ async def get_recommendations(request: RecommendationRequest):
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {str(e)}")
 
 def get_mock_recommendations(request: RecommendationRequest):
-    """Возвращает mock рекомендации когда модель не загружена"""
+    
     mock_recommendations = [
         TrackInfo(
             track_name="Blinding Lights",
@@ -316,96 +452,39 @@ def get_mock_recommendations(request: RecommendationRequest):
             danceability=75.0,
             valence=65.0,
             bpm=120.0,
+            dataset_type="spotify_2023",
             youtube_url="https://www.youtube.com/results?search_query=Blinding+Lights+The+Weeknd",
-            spotify_url="https://open.spotify.com/search/Blinding%20Lights%20The%20Weeknd"
-        ),
-        TrackInfo(
-            track_name="Save Your Tears",
-            artist_name="The Weeknd",
-            similarity=0.88,
-            key="D",
-            mode="Minor",
-            energy=70.0,
-            danceability=80.0,
-            valence=60.0,
-            bpm=118.0,
-            youtube_url="https://www.youtube.com/results?search_query=Save+Your+Tears+The+Weeknd",
-            spotify_url="https://open.spotify.com/search/Save%20Your%20Tears%20The%20Weeknd"
-        ),
-        TrackInfo(
-            track_name="Levitating",
-            artist_name="Dua Lipa",
-            similarity=0.82,
-            key="F",
-            mode="Major",
-            energy=88.0,
-            danceability=85.0,
-            valence=75.0,
-            bpm=103.0,
-            youtube_url="https://www.youtube.com/results?search_query=Levitating+Dua+Lipa",
-            spotify_url="https://open.spotify.com/search/Levitating%20Dua%20Lipa"
+            spotify_url="https://open.spotify.com/search/Blinding%20Lights%20The%20Weeknd",
+            apple_url="https://music.apple.com/search?term=Blinding%20Lights%20The%20Weeknd"
         )
     ]
     
     return RecommendationResponse(
         query=request.query,
+        dataset_type="mock",
         recommendations=mock_recommendations[:request.top_n]
     )
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Проверка состояния сервиса"""
-    status = "healthy" if model is not None and df is not None else "degraded"
+    models_loaded = model_spotify_2023 is not None and model_spotify_2024 is not None
+    data_loaded = df_spotify_2023 is not None and df_spotify_2024 is not None
+    status = "healthy" if models_loaded and data_loaded else "degraded"
+    
     return HealthResponse(
         status=status,
-        model_loaded=model is not None,
-        data_loaded=df is not None,
-        total_tracks=len(df) if df is not None else None
+        models_loaded=models_loaded,
+        data_loaded=data_loaded,
+        total_tracks_2023=len(df_spotify_2023) if df_spotify_2023 is not None else None,
+        total_tracks_2024=len(df_spotify_2024) if df_spotify_2024 is not None else None
     )
-
-@app.get("/stats")
-async def get_stats():
-    """Получить статистику о загруженных данных"""
-    if df is None:
-        raise HTTPException(status_code=503, detail="Данные не загружены")
-    
-    return {
-        "total_tracks": len(df),
-        "columns": list(df.columns),
-        "artists_count": df['artist(s)_name'].nunique(),
-        "sample_tracks": df[['track_name', 'artist(s)_name']].head(5).to_dict('records')
-    }
-
-@app.get("/search")
-async def search_tracks(query: str, limit: int = 10):
-    """Поиск треков по названию или исполнителю"""
-    if df is None:
-        raise HTTPException(status_code=503, detail="Данные не загружены")
-    
-    if not query.strip():
-        raise HTTPException(status_code=400, detail="Поисковый запрос не может быть пустым")
-    
-    try:
-        # Поиск по названию трека и имени исполнителя
-        mask = (df['track_name'].str.contains(query, case=False, na=False) | 
-                df['artist(s)_name'].str.contains(query, case=False, na=False))
-        
-        results = df[mask].head(limit)
-        
-        return {
-            "query": query,
-            "found": len(results),
-            "tracks": results[['track_name', 'artist(s)_name', 'key', 'mode', 'energy', 'danceability']].to_dict('records')
-        }
-    except Exception as e:
-        logger.error(f"Ошибка при поиске: {str(e)}")
-        raise HTTPException(status_code=500, detail="Ошибка при выполнении поиска")
 
 if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=8000,
-        reload=False,  
+        reload=False,
         log_level="info"
     )
